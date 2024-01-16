@@ -15,10 +15,12 @@
                 "--root",
                 "../datasets/FlyingChairs_release/data",
                 "--model",
-                "flownet",
+                "pwc_net",
                 "--lr",
-                "1e-1",
-                "--forward_splat"
+                "1e-4",
+                "--forward_splat",
+                "--path",
+                "overfit2"
             ]
         }
     ]

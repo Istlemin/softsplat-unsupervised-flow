@@ -416,7 +416,7 @@ class Unsupervised(nn.Module):
             nn.Parameter(torch.randn((8,2,6,8))*0.3),
         ])
 
-
+        #self.alpha = nn.Parameter(torch.ones(1)*-1)
 
 
         self.forward_splat = forward_splat
@@ -435,7 +435,17 @@ class Unsupervised(nn.Module):
 
         return warped_frame, torch.ones_like(warped_frame)[:,:1]
     
-    def stn_splat(self, flow, frame1,depth_metric):
+    def stn_occ(self, flow, flow_reverse, frame2):
+        warped_frame, mask = self.stn(flow,frame2)
+        with torch.no_grad():
+            # print(flow_reverse.shape)
+            # print(frame2.shape)
+            mask = softsplat(torch.ones_like(flow)[:,:1],flow_reverse,None,strMode="sum")
+
+        return warped_frame, mask
+        
+    
+    def stn_splat(self, flow, frame1,frame2, depth_metric):
         b, _, h, w = flow.shape
         frame1 = F.interpolate(frame1, size=(h, w), mode='bilinear', align_corners=True)
 
@@ -443,8 +453,10 @@ class Unsupervised(nn.Module):
         # print(frame1.sum(),"two")
         flow2 = flow*1
         flow2.requires_grad_(True)
-        #warped_frame, norm = softsplat(frame1,flow2,depth_metric,strMode="soft")
-        warped_frame, norm = softsplat(frame1,flow2,None,strMode="avg")
+        #warped_frame = softsplat(frame1,flow2,None,strMode="sum")
+        #torch.save(depth_metric,"tensors/depth_metric")
+        
+        warped_frame, norm = softsplat(frame1,flow2,depth_metric,strMode="soft")
         #print(f"{norm.min():.3f}",f"{norm.max():.3f}",f"{norm.mean():.3f}")
         flow3 = flow*1
         flow3.requires_grad_(True)
@@ -456,12 +468,12 @@ class Unsupervised(nn.Module):
         
         #print(f"depthmetric {depth_metric.min(),depth_metric.max(),depth_metric.mean()}")
         
-        def print_grad(x):
-            print(f"splatflow {x.shape} {x.abs().max():.3f}")
-        flow2.register_hook(print_grad)
-        def print_grad(x):
-            print(f"maskflow {x.shape} {x.abs().max():.3f}")
-        flow3.register_hook(print_grad)
+        # def print_grad(x):
+        #     print(f"splatflow {x.shape} {x.abs().max():.3f}")
+        # flow2.register_hook(print_grad)
+        # def print_grad(x):
+        #     print(f"maskflow {x.shape} {x.abs().max():.3f}")
+        # flow3.register_hook(print_grad)
         
         return warped_frame, mask
 
@@ -472,9 +484,16 @@ class Unsupervised(nn.Module):
         flow_predictions = list(flow_predictions)
         #flow_predictions = [0]*5
         #depth_metrics = [None]*5
+        for i in range(5):
+            flow_predictions[i] = flow_predictions[i]*1
+        
+        frame2 = x[:, 3:, :, :]
+        frame1 = x[:, :3, :, :]
+        
+        # depth_metrics = []
         # for i in range(5):
-        #     flow_predictions[i] = self.flows[i][:x.shape[0]]*1
-            
+        #     _,_,h,w = flow_predictions[i].shape
+        #     depth_metrics.append(self.alpha * (F.interpolate(frame1, size=(h, w), mode='bilinear', align_corners=True) - self.stn(flow_predictions[i],frame2)[0]).norm(dim=1,p=1).unsqueeze(1))
         
         # for i in range(4,-1,-1):
         #     if i<4:
@@ -488,13 +507,16 @@ class Unsupervised(nn.Module):
         #print( flow_predictions[0].sum().item() * 0, time.time() - tic, "six")
         #tic = time.time()
         
-        frame2 = x[:, 3:, :, :]
-        frame1 = x[:, :3, :, :]
         #warped_images = [self.stn(flow, frame2) for flow in flow_predictions]
         if self.forward_splat:
-            warped_images, masks = zip(*[self.stn_splat(flow, frame1, depth_metric) for flow,depth_metric in zip(flow_predictions,depth_metrics)])
-        else:
+            warped_images, masks = zip(*[self.stn_splat(flow, frame1, frame2, depth_metric) for flow,depth_metric in zip(flow_predictions,depth_metrics)])
+        elif True:
             warped_images, masks = zip(*[self.stn(flow, frame2) for flow in flow_predictions])
+        else:
+            with torch.no_grad():
+                flow_predictions_backwards, _ = self.predictor(torch.cat([frame2,frame1],dim=1))
+                
+            warped_images, masks = zip(*[self.stn_occ(flow,flow_reverse, frame2) for flow, flow_reverse in zip(flow_predictions, flow_predictions_backwards)])
             
         #print(warped_images[0].sum().item()*0,time.time() - tic, "seven")
         #tic = time.time()

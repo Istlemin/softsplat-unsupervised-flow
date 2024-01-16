@@ -45,7 +45,7 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def epoch(model, data, criterion, epoch_index,optimizer=None):
+def epoch(model, data, criterion, epoch_index,save_path,optimizer=None):
     np.random.seed(seed=1)
     torch.manual_seed(1)
     torch.cuda.manual_seed(1)
@@ -58,8 +58,11 @@ def epoch(model, data, criterion, epoch_index,optimizer=None):
 
     tic = time.time()
     imgs0,flow0 = next(iter(data))
-    imgs0 = imgs0.to(device)[:8]
-    flow0 = flow0.to(device)[:8]
+    imgs0 = imgs0.to(device)[:1]
+    flow0 = flow0.to(device)[:1]
+    
+    # imgs0 = torch.load("tensors/imgs2000")
+    # flows0 = torch.load("tensors/flow2000")
     for i, (imgs, flow) in enumerate(data):
         imgs = imgs.to(device)
         flow = flow.to(device)
@@ -93,45 +96,47 @@ def epoch(model, data, criterion, epoch_index,optimizer=None):
         if optimizer is not None:
             optimizer.zero_grad()
             loss.backward()
-            print("Model grad")
-            for name,param in model.named_parameters():
-                if param.grad is None:
-                    print(name,"no grad")
-                else:
-                    print(name,param.grad.min(),param.grad.max(),param.grad.mean(),param.grad.abs().mean())
-            print("max flow:")
-            for j in range(5):
-                print(f"{pred_flows[j].abs().max():.3f}",end=" ")
-            print()
-            print("mean flow:")
-            for j in range(5):
-                print(f"{pred_flows[j].mean():.3f}",end=" ")
-            print()
-            print("mean grad flow:")
-            for j in range(5):
-                if pred_flows[j].grad is not None:
-                    print(f"{pred_flows[j].grad.mean():.3f}",end=" ")
-            print()
-            print("max grad flow:")
-            for j in range(5):
-                if pred_flows[j].grad is None:
-                    continue
-                print(f"{pred_flows[j].grad.abs().max():.3f}",end=" ")
-                
-                
-                big_grads = (pred_flows[j].grad.abs()>2).float().sum()
-                if big_grads>=1:
-                    print()
-                    print("BIG GRADIENTS: ",big_grads.item())
+            if False:
+                print("Model grad")
+                for name,param in model.named_parameters():
+                    if param.grad is None:
+                        print(name,"no grad")
+                    else:
+                        print(name,param.grad.min(),param.grad.max(),param.grad.mean(),param.grad.abs().mean())
+                print("max flow:")
+                for j in range(5):
+                    print(f"{pred_flows[j].abs().max():.3f}",end=" ")
+                print()
+                print("mean flow:")
+                for j in range(5):
+                    print(f"{pred_flows[j].mean():.3f}",end=" ")
+                print()
+                print("mean grad flow:")
+                for j in range(5):
+                    if pred_flows[j].grad is not None:
+                        print(f"{pred_flows[j].grad.mean():.3f}",end=" ")
+                print()
+                print("max grad flow:")
+                for j in range(5):
+                    if pred_flows[j].grad is None:
+                        continue
+                    print(f"{pred_flows[j].grad.abs().max():.3f}",end=" ")
                     
-                    torch.save(pred_flows[j],"tensors/pred_flows")
-                    torch.save(wraped_imgs[j],"tensors/warped")
-                    torch.save(imgs,"tensors/imgs")
-                    torch.save(depth_metrics[j],"tensors/depth_metric")
-                    torch.save(masks[j],"tensors/mask")
-                    exit()
-                #print(f"{wraped_imgs[j].grad.abs().max():.3f}",end=" ")
-            print()
+                    
+                    big_grads = (pred_flows[j].grad.abs()>2).float().sum()
+                    if big_grads>=1:
+                        print()
+                        print("BIG GRADIENTS: ",big_grads.item())
+                        
+                        torch.save(pred_flows[j],"tensors/pred_flows")
+                        torch.save(wraped_imgs[j],"tensors/warped")
+                        torch.save(imgs,"tensors/imgs")
+                        torch.save(depth_metrics[j],"tensors/depth_metric")
+                        torch.save(masks[j],"tensors/mask")
+                        exit()
+                    #print(f"{wraped_imgs[j].grad.abs().max():.3f}",end=" ")
+                print("",flush=True)
+            
             optimizer.step()
             
         #print(model.predictor.conv1[0].weight.grad.sum().item()*0,time.time() - tic, "five")
@@ -145,7 +150,6 @@ def epoch(model, data, criterion, epoch_index,optimizer=None):
         avg_loss.update(loss.item())
         avg_batch_time.update(batch_time)
         
-        print("",flush=True)
 
         if i % PRINT_INTERVAL == 0:
             print('[{0:s} Batch {1:03d}/{2:03d}]\t'
@@ -158,18 +162,22 @@ def epoch(model, data, criterion, epoch_index,optimizer=None):
                 smooth=avg_smooth_loss, bce=avg_bce_loss, epe=avg_epe),flush=True)
             #print(model.predictor.upconvflow3.weight.sum().item(),flush=True)
         
-        if i%50 == 0:
-            path = f"images/epoch{epoch_index}_{i}_{model.forward_splat}"
-            Path(path).mkdir(exist_ok=True)
+        if i%500 == 0:
+            path = f"images/{save_path}/epoch{epoch_index}_{i}_{model.forward_splat}"
+            Path(path).mkdir(exist_ok=True,parents=True)
             pyramid_ind = 0
             img1 = F.interpolate(imgs[:,:3], (pred_flows[pyramid_ind].shape[2], pred_flows[pyramid_ind].shape[3]), mode='bilinear', align_corners=True)[0]
             img2 = F.interpolate(imgs[:,3:], (pred_flows[pyramid_ind].shape[2], pred_flows[pyramid_ind].shape[3]), mode='bilinear', align_corners=True)[0]
             torchvision.utils.save_image(img1,f"{path}/img1.png")
             torchvision.utils.save_image(img2,f"{path}/img2.png")
+            torchvision.utils.save_image(masks[pyramid_ind][0],f"{path}/mask.png")
             torchvision.utils.save_image(wraped_imgs[pyramid_ind][0],f"{path}/warped_{epoch_index}_{i*0}.png")
             #torchvision.utils.save_image(model.stn_splat(flow[:1],img1.unsqueeze(0), torch.ones_like(flow)[:,:1])[0][0],f"{path}/warped_gt.png")
             computeImg(pred_flows[pyramid_ind][0].cpu().detach().numpy(), verbose=True, savePath=f'{path}/predicted_flow_{epoch_index}_{i*0}.png')
             computeImg(flow[0].cpu().detach().numpy(), verbose=True, savePath=f'{path}/true_flow.png')
+            
+            if depth_metrics is not None:
+                plt.imsave(f"{path}/depth_metrics.png", depth_metrics[pyramid_ind][0].cpu().detach()[0],vmin=-3,vmax=3)
 
     print('\n===============> Total time {batch_time:d}s\t'
           'Avg loss {loss.avg:.4f}\t'
@@ -196,12 +204,14 @@ if __name__ == '__main__':
     parser.add_argument("--forward_splat", help="Use forward splatting instead of backward warp", action="store_true")
     parser.add_argument("--transfer", help="perform transfer learning from an already trained supervised model",
                         action="store_true")
+    parser.add_argument('--path', default=None, type=str, help='path')
 
     args = parser.parse_args()
 
     mymodel = Unsupervised(conv_predictor=args.model, forward_splat=args.forward_splat)
     mymodel.to(device)
     path = os.path.join("Unsupervised", type(mymodel.predictor).__name__)
+    path = args.path
     if args.forward_splat:
         loss_fnc = unsup_loss_forward_warp
     else:
@@ -257,7 +267,7 @@ if __name__ == '__main__':
     tb = SummaryWriter(os.path.join("runs", path), flush_secs=20)
     starting_epoch = 0
     best_loss = 100000
-    if os.path.exists(os.path.join("Checkpoints", path, 'training_state.pt')) and False:
+    if os.path.exists(os.path.join("Checkpoints", path, 'training_state.pt')):
         checkpoint = torch.load(os.path.join("Checkpoints", path, 'training_state.pt'), map_location=device)
         mymodel.load_state_dict(checkpoint['model_state_dict'])
         #optim.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -271,7 +281,7 @@ if __name__ == '__main__':
 
         print("=================\n=== EPOCH " + str(e + 1) + " =====\n=================\n")
         print("learning rate : ", optim.param_groups[0]["lr"])
-        smooth_loss, bce_loss, total_loss = epoch(mymodel, train, loss_fnc, e,optim)
+        smooth_loss, bce_loss, total_loss = epoch(mymodel, train, loss_fnc, e,args.path,optim)
 
         if save_checkpoint:
             torch.save({
@@ -281,7 +291,7 @@ if __name__ == '__main__':
                 'optimizer_state_dict': optim.state_dict(),
             }, os.path.join("Checkpoints", path, 'training_state.pt'))
 
-        smooth_loss_val, bce_loss_val, total_loss_val = epoch(mymodel, val, loss_fnc, -1)
+        smooth_loss_val, bce_loss_val, total_loss_val = epoch(mymodel, val, loss_fnc, -1,args.path)
 
         if total_loss_val < best_loss and save_checkpoint:
             print("---------saving new weights!----------") 
@@ -292,7 +302,7 @@ if __name__ == '__main__':
                 'loss': total_loss, 'smooth_loss': smooth_loss, 'bce_loss': bce_loss,
             }, os.path.join("model_weight", path, 'best_weight.pt'))
 
-        smooth_loss_test, bce_loss_test, total_loss_test = epoch(mymodel, test, loss_fnc,-1)
+        smooth_loss_test, bce_loss_test, total_loss_test = epoch(mymodel, test, loss_fnc,-1,args.path)
         # with torch.no_grad():
         #     mymodel.eval()
         #     pred_flow = mymodel.predictor(tb_frames_train)[0]

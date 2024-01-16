@@ -339,30 +339,32 @@ def photometric_loss(wraped,mask, frame,gamma1,gamma2):
     Lp_2 += (charbonnier(dy_wraped-dy_frame)*mask[:,:,:-1,:]).sum()/mask[:,:,:-1,:].sum()/3
     # print(Lp_1,"eight")
     # print(Lp_2,"nine")
-    print("mask sum:", mask[:,:,:-1,:].sum(),mask[:,:,:,:-1].sum())
+    #print("mask sum:", mask[:,:,:-1,:].sum(),mask[:,:,:,:-1].sum())
     return Lp_1*gamma1 + Lp_2*gamma2
 
 
 def unsup_loss(pred_flows, wraped_imgs, masks, frame1,warp_target, weights=(0.005, 0.01, 0.02, 0.08, 0.32)):
     #weights = (0,1,0,0,0)
     #weights=(0.005, 0.005, 0.005, 0.005, 0.005)
-    weights_bce=(3, 2, 1, 1, 1)
-    weights_smooth=(4, 1, 0.5, 0.2, 0.1)
+    weights_bce=(1, 1, 1, 1, 1)
+    weights_smooth=(2, 1, 0.5, 0.2, 0.1)
     if len(pred_flows) < 5:
         weights = [0.005]*len(pred_flows)
     bce = 0
     smooth = 0
     mask_loss = 0
     dist_loss = 0
+    
+    bces = []
     for i in range(0,len(weights)):
         resized_frame1 = F.interpolate(frame1, (wraped_imgs[i].shape[2], wraped_imgs[i].shape[3]), mode='bilinear', align_corners=True)
         resized_warp_target = F.interpolate(warp_target, (wraped_imgs[i].shape[2], wraped_imgs[i].shape[3]), mode='bilinear', align_corners=True)
-        bce_curr = 0.1*weights_bce[i] * photometric_loss(wraped_imgs[i], masks[i], resized_warp_target,10.0,10.0)
+        bce_curr = 0.2*weights_bce[i] * photometric_loss(wraped_imgs[i], masks[i], resized_warp_target,10.0,10.0)
         
         
         flow2 = pred_flows[i]*1
         flow2.requires_grad_(True)
-        smooth_curr = 0.0005*weights_smooth[i] * smoothness_loss(flow2,resized_frame1, 1, 0.0,10.0)
+        smooth_curr = 0.0005*weights_smooth[i] * smoothness_loss(flow2,resized_frame1, 1, 0.0,50.0)
         # print(f"bce {i}:", photometric_loss(wraped_imgs[i], masks[i], resized_warp_target,10.0,10.0))
         # print(f"Smooth {i}:", smoothness_loss(flow2,resized_frame1, 1, 0.0,5.0))
         mask_loss -= torch.minimum(masks[i].mean(),torch.tensor(0.5,device=masks[i].device))-0.5
@@ -370,12 +372,14 @@ def unsup_loss(pred_flows, wraped_imgs, masks, frame1,warp_target, weights=(0.00
         bce += bce_curr
         smooth += smooth_curr
         
-        def print_grad(x):
-            print(f"smoothflow {x.shape} {x.abs().max():.3f}")
-        flow2.register_hook(print_grad)
-        print(f"losses {bce_curr:.3f} {smooth_curr:.3f}")
+        # def print_grad(x):
+        #     print(f"smoothflow {x.shape} {x.abs().max():.3f}")
+        # flow2.register_hook(print_grad)
+        # print(f"losses {bce_curr:.3f} {smooth_curr:.3f}")
+        
+        bces.append(bce_curr)
 
-    # print(bce,smooth,mask_loss,dist_loss)
+    #print("bce losses","\t".join([f"{x:.3f}" for x in bces]))
     loss = bce + smooth + mask_loss + dist_loss
     return loss, bce, smooth
 

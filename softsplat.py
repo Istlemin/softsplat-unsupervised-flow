@@ -288,6 +288,7 @@ def softsplat(
         assert tenMetric is not None
     if strMode.split("-")[0] == "soft":
         assert tenMetric is not None
+        tenMetric = tenMetric - tenMetric.mean()
         tenMetric = tenMetric.clip(-3,3)
 
     if strMode == "avg":
@@ -312,14 +313,18 @@ def softsplat(
         with torch.no_grad():
             gradient_discount = (tenFlow-tenFlow.round().double()).abs().float()
         def reduce_grad(x):
-            print("Max before: ", x.abs().max())
-            x = x*gradient_discount*5#*2+x*0.0001
-            print("Max after: ", x.abs().max())
-            return x
-        tenFlow2.register_hook(reduce_grad)
+            #print(x.max().item())
+            #return x
+            #return x*torch.where(tenNormalize<1,tenNormalize,torch.ones_like(tenNormalize))
+            return x.clip(-0.03,0.03)
+            
+        if tenFlow2.requires_grad:
+            tenFlow2.register_hook(reduce_grad)
+        if tenMetric is not None and tenMetric.requires_grad:
+            tenMetric.register_hook(reduce_grad)
 
-    #tenOut = softsplat_func.apply(tenIn, tenFlow2)
-    tenOut = pytorch_splat(tenIn, tenFlow2)
+    tenOut = softsplat_func.apply(tenIn, tenFlow2)
+    #tenOut = pytorch_splat(tenIn, tenFlow2)
 
     # print("teIn:",tenIn[3,:,1,4].tolist())
     # print("teIn:",tenIn[3,:,2,5].tolist())
@@ -329,6 +334,15 @@ def softsplat(
     if strMode.split("-")[0] in ["avg", "linear", "soft"]:
         tenNormalize = tenOut[:, -1:, :, :]
 
+        # def reduce_grad(x):
+        #     before = x.max().item()
+        #     x = x*torch.where(tenNormalize<1,tenNormalize,torch.ones_like(tenNormalize))
+        #     print(f"{x.max().item():.4f} {before:.4f}")
+            
+        #     x = x.clip(-0.1,0.1)
+        #     return x*3
+        # if tenNormalize.requires_grad:
+        #     tenNormalize.register_hook(reduce_grad)
         # if len(strMode.split("-")) == 1:
         #     tenNormalize = tenNormalize + 0.001
 
